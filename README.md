@@ -33,7 +33,7 @@ You can also specify any of these options on the command line (for testing purpo
 Adding terraform resources to ansible groups
 --------------------------------------------
 
-The defaults may be all you need, as all of the primary attributes of each Terraform compute resource will be available in ansible as host_vars with the prefix "tf_", and you can use ansible dynamic groups (using the [group_by module](https://docs.ansible.com/ansible/group_by_module.html) to add hosts to groups based on those host_vars values.
+The defaults may be all you need, as all of the primary attributes of each Terraform compute resource will be available in ansible as host_vars with the prefix "tf_", and you can use ansible dynamic groups (using the [group_by module](https://docs.ansible.com/ansible/group_by_module.html) to add hosts to groups based on those host_vars values).
 
 For example, in your site playbook you might add the following:
 ```
