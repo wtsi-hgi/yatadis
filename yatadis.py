@@ -27,10 +27,98 @@ import sys
 from jinja2 import Template
 from jinja2 import exceptions as jinja_exc
 
+###############################################################################
+# Default inventory name template:
+# names the ansible `inventory_name` after the (guaranteed unique) Terraform
+# `resource_name`
+###############################################################################
 DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE='{{ resource_name }}'
+
+###############################################################################
+# Default groups template:
+# assign all resources to the `all` group
+###############################################################################
+DEFAULT_ANSIBLE_GROUPS_TEMPLATE='all'
+
+###############################################################################
+# Default resource filter:
+# include all supported Terraform providers of compute instance/machines
+###############################################################################
+# List of providers with link to documentation:
+# alicloud_instance: https://www.terraform.io/docs/providers/alicloud/r/instance.html
+# aws_instance: https://www.terraform.io/docs/providers/aws/r/instance.html
+# clc_server: https://www.terraform.io/docs/providers/clc/r/server.html
+# cloudstack_instance: https://www.terraform.io/docs/providers/cloudstack/r/instance.html
+# digitalocean_droplet: https://www.terraform.io/docs/providers/do/r/droplet.html
+# docker_container: https://www.terraform.io/docs/providers/docker/r/container.html
+# google_compute_instance: https://www.terraform.io/docs/providers/google/r/compute_instance.html
+# azurem_virtual_machine: https://www.terraform.io/docs/providers/azurerm/r/virtual_machine.html
+# azure_instance: https://www.terraform.io/docs/providers/azure/r/instance.html
+# openstack_compute_instance_v2: https://www.terraform.io/docs/providers/openstack/r/compute_instance_v2.html
+# profitbricks_server: https://www.terraform.io/docs/providers/profitbricks/r/profitbricks_server.html
+# scaleway_server: https://www.terraform.io/docs/providers/scaleway/r/server.html
+# softlayer_virtual_guest: https://www.terraform.io/docs/providers/softlayer/r/virtual_guest.html
+# triton_machine: https://www.terraform.io/docs/providers/triton/r/triton_machine.html
+# vsphere_virtual_machine: https://www.terraform.io/docs/providers/vsphere/r/virtual_machine.html
+###############################################################################
+DEFAULT_ANSIBLE_RESOURCE_FILTER_TEMPLATE="""{{ resource.type in [
+                                               "alicloud_instance",
+                                               "aws_instance",
+                                               "clc_server",
+                                               "cloudstack_instance",
+                                               "digitalocean_droplet",
+                                               "docker_container",
+                                               "google_compute_instance",
+                                               "azurem_virtual_machine",
+                                               "azure_instance",
+                                               "openstack_compute_instance_v2",
+                                               "profitbricks_server",
+                                               "scaleway_server",
+                                               "softlayer_virtual_guest",
+                                               "triton_machine",
+                                               "vsphere_virtual_machine"] }}"""
+
+###############################################################################
+# Default host vars template:
+# set all primary attributes as host_vars prefixed by 'tf_' and set `host_name`
+# based on IP (v6 if available, otherwise v4; public if available, otherwise
+# private/other).
+###############################################################################
+# IP address attributes for each provider, according to terraform docs:
+# alicloud_instance: public_ip, private_ip
+# aws_instance: public_ip, private_ip
+# clc_server: (attribute undocumented, so this is based on arguments) private_ip_address
+# cloudstack_instance: (attribute undocumented, so this is based on arguments) ip_address
+# digitalocean_droplet: ipv4_address, ipv6_address, ipv6_address_private, ipv4_address_private
+# docker_container: ip_address
+# google_compute_instance: network_interface.0.access_config.0.assigned_nat_ip, network_interface.0.address
+# azurem_virtual_machine: UNDOCUMENTED
+# azure_instance: vip_address, ip_address
+# openstack_compute_instance_v2: access_ip_v6, access_ip_v4, network/floating_ip, network/fixed_ip_v6, network/fixed_ip_v4
+# profitbricks_server: UNDOCUMENTED
+# scaleway_server: public_ip, private_ip
+# softlayer_virtual_guest: (attribute undocumented, so this is based on arguments) ipv4_address, ipv4_address_private
+# triton_machine: primaryip
+# vsphere_virtual_machine: network_interface/ipv6_address, network_interface/ipv4_address
+###############################################################################
 DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE="""host_name={{ resource.primary.attributes.access_ip_v6
+                                                | default(resource.primary.attributes.ipv6_address, true)
                                                 | default(resource.primary.attributes.access_ip_v4, true)
                                                 | default(resource.primary.attributes["network.0.floating_ip"], true)
+                                                | default(resource.primary.attributes["network_interface.0.access_config.0.assigned_nat_ip"], true)
+                                                | default(resource.primary.attributes.ipv4_address, true)
+                                                | default(resource.primary.attributes.public_ip, true)
+                                                | default(resource.primary.attributes.ipaddress, true)
+                                                | default(resource.primary.attributes.vip_address, true)
+                                                | default(resource.primary.attributes.primaryip, true)
+                                                | default(resource.primary.attributes.ip_address, true)
+                                                | default(resource.primary.attributes["network_interface.0.ipv6_address"], true)
+                                                | default(resource.primary.attributes.ipv6_address_private, true)
+                                                | default(resource.primary.attributes.private_ip, true)
+                                                | default(resource.primary.attributes["network_interface.0.ipv4_address"], true)
+                                                | default(resource.primary.attributes.private_ip_address, true)
+                                                | default(resource.primary.attributes.ipv4_address_private, true)
+                                                | default(resource.primary.attributes["network_interface.0.address"], true)
                                                 | default(resource.primary.attributes["network.0.fixed_ip_v6"], true)
                                                 | default(resource.primary.attributes["network.0.fixed_ip_v4"], true)}},
                                       {% set comma = joiner(",") %}
@@ -38,8 +126,6 @@ DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE="""host_name={{ resource.primary.attributes.a
                                         {{ comma() }}tf_{{ attr }}={{ value }}
                                       {% endfor %}
                                       """
-DEFAULT_ANSIBLE_GROUPS_TEMPLATE='all'
-DEFAULT_ANSIBLE_RESOURCE_FILTER_TEMPLATE='{{ resource.type in ["aws_instance","azure_instance","clc_server","digitalocean_droplet","google_compute_instance","openstack_compute_instance_v2","softlayer_virtualserver","triton_machine","ucs_service_profile","vsphere_virtual_machine"] }}'
 
 TEMPLATE_KWARGS={'trim_blocks': True, 'lstrip_blocks': True, 'autoescape': False}
 
