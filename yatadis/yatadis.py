@@ -197,7 +197,18 @@ def list_groups(tf_state_data):
 def get_host(tf_state_data, inventory_name):
     return tf_state_data['hosts'].get(inventory_name, {})
 
-def main(args):
+def main():
+    parser = argparse.ArgumentParser(description='Terraform Ansible Inventory')
+    parser.add_argument('--list', help='List inventory', action='store_true', default=False)
+    parser.add_argument('--host', help='Get hostvars for a specific host', default=None)
+    parser.add_argument('--debug', help='Print additional debugging information to stderr', action='store_true', default=False)
+    parser.add_argument('--state', help="Location of Terraform .tfstate file (default: environment variable TF_STATE or 'terraform.tfstate' in the current directory)", type=argparse.FileType('r'), default=os.getenv('TF_STATE', 'terraform.tfstate'), dest='terraform_state')
+    parser.add_argument('--ansible-inventory-name-template', help="A jinja2 template used to generate the ansible `host` (i.e. the inventory name) from a terraform resource. (default: environment variable TF_ANSIBLE_INVENTORY_NAME_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), default=get_template_default('TF_ANSIBLE_INVENTORY_NAME_TEMPLATE', default=DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-host-vars-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible host_vars settings (as '<key>=<value>' pairs) from a terraform resource. (default: environment variable TF_ANSIBLE_HOST_VARS_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), default=get_template_default('TF_ANSIBLE_HOST_VARS_TEMPLATE', default=DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-groups-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible `group` names to which the resource should belong. (default: environment variable TF_ANSIBLE_GROUPS_TEMPLATE or `%s`])" % (DEFAULT_ANSIBLE_GROUPS_TEMPLATE), default=get_template_default('TF_ANSIBLE_GROUPS_TEMPLATE', default=DEFAULT_ANSIBLE_GROUPS_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-resource-filter-template', help="A jinja2 template used to filter terraform resources. This template is rendered for each resource and should evaluate to either the string 'True' to include the resource or 'False' to exclude it from the output.", default=get_template_default('TF_ANSIBLE_RESOURCE_FILTER_TEMPLATE', default=DEFAULT_ANSIBLE_RESOURCE_FILTER_TEMPLATE), action=JinjaTemplateAction)
+    args = parser.parse_args()
+
     args.debug and print("Parsing JSON from %s" % (args.terraform_state), file=sys.stderr)
     tf_state = json.load(args.terraform_state)
     ansible_data = {}
@@ -332,14 +343,4 @@ def get_template_default(*env_vars, default=''):
     return TemplateWithSource(template_source, **TEMPLATE_KWARGS)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Terraform Ansible Inventory')
-    parser.add_argument('--list', help='List inventory', action='store_true', default=False)
-    parser.add_argument('--host', help='Get hostvars for a specific host', default=None)
-    parser.add_argument('--debug', help='Print additional debugging information to stderr', action='store_true', default=False)
-    parser.add_argument('--state', help="Location of Terraform .tfstate file (default: environment variable TF_STATE or 'terraform.tfstate' in the current directory)", type=argparse.FileType('r'), default=os.getenv('TF_STATE', 'terraform.tfstate'), dest='terraform_state')
-    parser.add_argument('--ansible-inventory-name-template', help="A jinja2 template used to generate the ansible `host` (i.e. the inventory name) from a terraform resource. (default: environment variable TF_ANSIBLE_INVENTORY_NAME_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), default=get_template_default('TF_ANSIBLE_INVENTORY_NAME_TEMPLATE', default=DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), action=JinjaTemplateAction)
-    parser.add_argument('--ansible-host-vars-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible host_vars settings (as '<key>=<value>' pairs) from a terraform resource. (default: environment variable TF_ANSIBLE_HOST_VARS_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), default=get_template_default('TF_ANSIBLE_HOST_VARS_TEMPLATE', default=DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), action=JinjaTemplateAction)
-    parser.add_argument('--ansible-groups-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible `group` names to which the resource should belong. (default: environment variable TF_ANSIBLE_GROUPS_TEMPLATE or `%s`])" % (DEFAULT_ANSIBLE_GROUPS_TEMPLATE), default=get_template_default('TF_ANSIBLE_GROUPS_TEMPLATE', default=DEFAULT_ANSIBLE_GROUPS_TEMPLATE), action=JinjaTemplateAction)
-    parser.add_argument('--ansible-resource-filter-template', help="A jinja2 template used to filter terraform resources. This template is rendered for each resource and should evaluate to either the string 'True' to include the resource or 'False' to exclude it from the output.", default=get_template_default('TF_ANSIBLE_RESOURCE_FILTER_TEMPLATE', default=DEFAULT_ANSIBLE_RESOURCE_FILTER_TEMPLATE), action=JinjaTemplateAction)
-    args = parser.parse_args()
-    main(args)
+    main()
