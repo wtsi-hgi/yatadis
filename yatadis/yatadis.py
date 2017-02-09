@@ -145,14 +145,23 @@ def process_tfstate(args, tf_state):
             args.debug and print("Processing resource name %s" % (resource_name), file=sys.stderr)
             host_vars = {}
             resource = Resource(resource_name, resources[resource_name])
-            filter_value = args.ansible_resource_filter_template.render(resource)
+            try:
+                filter_value = args.ansible_resource_filter_template.render(resource)
+            except jinja_exc.UndefinedError as e:
+                sys.exit("Error rendering resource filter template: %s (template was '%s')" % (e, args.ansible_resource_filter_template.source()))
             if filter_value == "False":
                 continue
             elif filter_value != "True":
                 raise ValueError("Unexpected value returned from ansible_resource_filter_template: %s (template was [%s])" % (filter_value, args.ansible_resource_filter_template.source()))
-            inventory_name = args.ansible_inventory_name_template.render(resource)
+            try:
+                inventory_name = args.ansible_inventory_name_template.render(resource)
+            except jinja_exc.UndefinedError as e:
+                sys.exit("Error rendering inventory name template: %s (template was '%s')" % (e, args.ansible_inventory_name_template.source()))
             args.debug and print("Rendered ansible_inventory_name_template as '%s' for %s" % (inventory_name, resource_name), file=sys.stderr)
-            group_names = re.split('\s*\n\s*', args.ansible_groups_template.render(resource))
+            try:
+                group_names = re.split('\s*\n\s*', args.ansible_groups_template.render(resource))
+            except jinja_exc.UndefinedError as e:
+                sys.exit("Error rendering groups template: %s (template was '%s')" % (e, args.ansible_groups_template.source()))
             args.debug and print("Rendered ansible_groups_template as '%s' for %s" % (group_names, resource_name), file=sys.stderr)
             for group_name in group_names:
                 if group_name not in groups:
@@ -160,7 +169,10 @@ def process_tfstate(args, tf_state):
                     groups[group_name]['hosts'] = []
                 args.debug and print("'%s' added to group '%s' for %s" % (inventory_name, group_name, resource_name), file=sys.stderr)
                 groups[group_name]['hosts'].append(inventory_name)
-            host_var_key_values = re.split('\s*\n\s*', args.ansible_host_vars_template.render(resource))
+            try:
+                host_var_key_values = re.split('\s*\n\s*', args.ansible_host_vars_template.render(resource))
+            except jinja_exc.UndefinedError as e:
+                sys.exit("Error rendering host_vars template: %s (template was '%s')" % (e, args.ansible_host_vars_template.source()))
             args.debug and print("Rendered ansible_host_vars_template as '%s' for %s" % (host_var_key_values, resource_name), file=sys.stderr)
             for key_value in host_var_key_values:
                 key_value = key_value.strip()
