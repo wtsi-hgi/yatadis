@@ -122,7 +122,7 @@ DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE="""ansible_host={{ primary.attributes.access_
                                                 | default(primary.attributes.ipv4_address_private, true)
                                                 | default(primary.attributes["network_interface.0.address"], true)
                                                 | default(primary.attributes["network.0.fixed_ip_v6"], true)
-                                                | default(primary.attributes["network.0.fixed_ip_v4"], true)}},
+                                                | default(primary.attributes["network.0.fixed_ip_v4"], true)}}
                                       {% set newline = joiner("\n") -%}
                                       {% for attr, value in primary.expanded_attributes.items() -%}
                                         {{ newline() }}tf_{{ attr }}={{ value }}
