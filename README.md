@@ -1,3 +1,5 @@
+[![PyPI version](https://badge.fury.io/py/yatadis.svg)](https://badge.fury.io/py/yatadis)
+
 Yet Another Terraform Ansible Dynamic Inventory Script (yatadis)
 ================================================================
 
