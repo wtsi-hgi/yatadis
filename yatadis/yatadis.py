@@ -29,6 +29,8 @@ import types
 from jinja2 import Template
 from jinja2 import exceptions as jinja_exc
 
+from jinjath import TemplateWithSource, JinjaTemplateAction, set_template_kwargs
+
 ###############################################################################
 # Default inventory name template:
 # names the ansible `inventory_name` after the (guaranteed unique) Terraform
@@ -129,7 +131,7 @@ DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE="""ansible_host={{ primary.attributes.access_
                                       {%- endfor -%}
                                       """
 
-TEMPLATE_KWARGS={'trim_blocks': True, 'lstrip_blocks': True, 'autoescape': False}
+set_template_kwargs({'trim_blocks': True, 'lstrip_blocks': True, 'autoescape': False})
 
 def process_tfstate(args, tf_state):
     tfstate_data = {}
@@ -321,30 +323,6 @@ class Resource(dict):
         for prefix in set([attr.split('.')[0] for attr in attributes.keys()]):
             self['primary']['expanded_attributes'][prefix] = flatmap_expand(attributes, prefix)
 
-class TemplateWithSource(Template):
-    def __new__(cls, source, **kwargs):
-        try:
-            rv = super().__new__(cls, source, **kwargs)
-        except jinja_exc.TemplateSyntaxError as e:
-            sys.exit("Syntax error in template: %s (template string was '%s')" % (e, source))
-        rv._source = source
-        return rv
-
-    def source(self):
-        return self._source
-
-class JinjaTemplateAction(argparse.Action):
-    def __init__(self, option_strings, dest, nargs=None, **kwargs):
-        if nargs is not None:
-            raise ValueError("nargs not allowed")
-        super().__init__(option_strings, dest, **kwargs)
-    def __call__(self, parser, namespace, source, option_string=None):
-        try:
-            template = TemplateWithSource(source, **TEMPLATE_KWARGS)
-        except jinja_exc.TemplateSyntaxError as e:
-            sys.exit("Syntax error in template specified by %s: %s (template source was: '%s')" % (option_string, e, source))
-        setattr(namespace, self.dest, template)
-
 def get_template_default(*env_vars, default=''):
     template_source = None
     for var in env_vars:
@@ -354,7 +332,7 @@ def get_template_default(*env_vars, default=''):
             break
     if template_source is None:
         template_source = default
-    return TemplateWithSource(template_source, **TEMPLATE_KWARGS)
+    return TemplateWithSource(template_source)
 
 if __name__ == '__main__':
     main()
