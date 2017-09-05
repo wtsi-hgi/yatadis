@@ -10,7 +10,7 @@ except ImportError:
 
 setup(
     name="yatadis",
-    version="0.4.2",
+    version="1.0.0",
     packages=find_packages(exclude=["tests"]),
     install_requires=open("requirements.txt", "r").readlines(),
     url="https://github.com/wtsi-hgi/yatadis",
