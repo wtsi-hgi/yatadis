@@ -12,7 +12,7 @@ Basic usage
 
 Ansible calls dynamic inventory scripts with either the `--list` or `--host` option, but no additional arguments. For that reason, yatadis accepts all of its options from environment variables:
 * TF_STATE: a path to a local terraform.tfstate file (default: terraform.tfstate in the current directory)
-* TF_ANSIBLE_INVENTORY_NAME_TEMPLATE: a [Jinja2][jinja2] template string that is applied to each Terraform resource to generate the ansible inventory name (default: `{{ resource_name }}` which is the resource name (TYPE+NAME) from Terraform is guaranteed to be unique).
+* TF_ANSIBLE_INVENTORY_NAME_TEMPLATE: a [Jinja2][jinja2] template string that is applied to each Terraform resource to generate the ansible inventory name (default: `{{ name }}` which is the resource name (TYPE+NAME) from Terraform is guaranteed to be unique).
 * TF_ANSIBLE_GROUPS_TEMPLATE: a [Jinja2][jinja2] template string that is applied to each Terraform resource to generate a newline-delimited list of ansible groups to which the resource should belong (default: `all` which simply assigns all hosts to the `all` group)
 * TF_ANSIBLE_RESOURCE_FILTER_TEMPLATE: a [Jinja2][jinja2] template string that is applied to each Terraform resource and should produce either `True` (to include the resource) or `False` (to exclude the resource). (default: `{{ type in ["aws_instance","azure_instance","clc_server","digitalocean_droplet","google_compute_instance","openstack_compute_instance_v2","softlayer_virtualserver","triton_machine","ucs_service_profile","vsphere_virtual_machine"] }}` which is suitable to limit to instance/machine resources from a variety of Terraform providers.
 * TF_ANSIBLE_HOST_VARS_TEMPLATE: a [Jinja2][jinja2] template string that is applied to each Terraform resource and should generate a newline-delimited list of host_var settings in the format `<host_var>=<value>`. (default: a template that will set `ansible_host` to the IP of the instance/machine as well as setting all resource attributes prefixed with `tf_` - see source code for details).
@@ -62,7 +62,7 @@ export TF_STATE=/path/to/terraform.tfstate
 Template context
 ----------------
 
-The context provided to the Jinja2 templates is a dict-like Resource object containing the same fields as the Terraform state resource fields. There is also an additional top-level entry called 'name' which contains the resource name (i.e. the key value of the resource entry). Finally, in addition to the `attributes` section (in flattened 'flatmap' format as it is in the Terraform state file), there is also an `expanded_attributes` section alongside it which has been expanded into nested dist and list structures.
+The context provided to the Jinja2 templates is a dict-like Resource object containing the same fields as the Terraform state resource fields. There is also an additional top-level entry called 'name' which contains the resource name (i.e. the key value of the resource entry). Finally, in addition to the `primary.attributes` section (in flattened 'flatmap' format as it is in the Terraform state file), there is also an `primary.expanded_attributes` section alongside it which has been expanded into nested dist and list structures.
 
 Advanced host_vars templating
 -----------------------------

@@ -34,7 +34,7 @@ from jinjath import TemplateWithSource, JinjaTemplateAction, set_template_kwargs
 ###############################################################################
 # Default inventory name template:
 # names the ansible `inventory_name` after the (guaranteed unique) Terraform
-# `resource_name`
+# `name`
 ###############################################################################
 DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE='{{ name }}'
 
