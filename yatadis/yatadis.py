@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 ################################################################################
-# Copyright (c) 2017 Genome Research Ltd.
+# Copyright (c) 2017, 2018 Genome Research Ltd.
 #
 # Author: Joshua C. Randall <jcrandall@alum.mit.edu>
 #
@@ -131,6 +131,30 @@ DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE="""ansible_host={{ primary.attributes.access_
                                       {%- endfor -%}
                                       """
 
+###############################################################################
+# Default inventory name template for terraform outputs:
+# names the ansible `inventory_name` after the Terraform output name
+###############################################################################
+DEFAULT_ANSIBLE_OUTPUT_INVENTORY_NAME_TEMPLATE='{{ name }}'
+
+###############################################################################
+# Default groups template for terraform outputs:
+# assign all outputs to the `all` group
+###############################################################################
+DEFAULT_ANSIBLE_OUTPUT_GROUPS_TEMPLATE='all'
+
+###############################################################################
+# Default resource filter for terraform outputs:
+# exclude all outputs from ansible inventory
+###############################################################################
+DEFAULT_ANSIBLE_OUTPUT_RESOURCE_FILTER_TEMPLATE='False'
+
+###############################################################################
+# Default host vars template for terraform outputs:
+# don't set any host_vars based on terraform outputs
+###############################################################################
+DEFAULT_ANSIBLE_OUTPUT_HOST_VARS_TEMPLATE=''
+
 set_template_kwargs({'trim_blocks': True, 'lstrip_blocks': True, 'autoescape': False})
 
 def process_tfstate(args, tf_state):
@@ -140,67 +164,103 @@ def process_tfstate(args, tf_state):
     for module in tf_state['modules']:
         args.debug and print("Processing module path %s" % (module['path']), file=sys.stderr)
         outputs = module['outputs']
+        for output_name in outputs:
+            output = Output(output_name, outputs[item_name])
+            (output_groups, output_hosts) = process_item_with_templates(item=output, item_type="output", item_name=output_name, filter_template=args.ansible_output_filter_template, inventory_name_template=args.ansible_output_inventory_name_template, groups_template=args.ansible_output_groups_template, host_vars_template=args.ansible_output_host_vars_template, debug_p=args.debug)
         path = module['path']
         depends_on = module['depends_on']
         resources = module['resources']
         for resource_name in resources:
-            args.debug and print("Processing resource name %s" % (resource_name), file=sys.stderr)
-            host_vars = {}
-            resource = Resource(resource_name, resources[resource_name])
-            try:
-                filter_value = args.ansible_resource_filter_template.render(resource)
-            except jinja_exc.UndefinedError as e:
-                sys.exit("Error rendering resource filter template: %s (template was '%s')" % (e, args.ansible_resource_filter_template.source()))
-            if filter_value == "False":
-                continue
-            elif filter_value != "True":
-                raise ValueError("Unexpected value returned from ansible_resource_filter_template: %s (template was [%s])" % (filter_value, args.ansible_resource_filter_template.source()))
-            try:
-                inventory_name = args.ansible_inventory_name_template.render(resource)
-            except jinja_exc.UndefinedError as e:
-                sys.exit("Error rendering inventory name template: %s (template was '%s')" % (e, args.ansible_inventory_name_template.source()))
-            args.debug and print("Rendered ansible_inventory_name_template as '%s' for %s" % (inventory_name, resource_name), file=sys.stderr)
-            try:
-                group_names = re.split('\s*\n\s*', args.ansible_groups_template.render(resource))
-            except jinja_exc.UndefinedError as e:
-                sys.exit("Error rendering groups template: %s (template was '%s')" % (e, args.ansible_groups_template.source()))
-            args.debug and print("Rendered ansible_groups_template as '%s' for %s" % (group_names, resource_name), file=sys.stderr)
-            for group_name in group_names:
-                if group_name not in groups:
-                    groups[group_name] = {}
-                    groups[group_name]['hosts'] = []
-                args.debug and print("'%s' added to group '%s' for %s" % (inventory_name, group_name, resource_name), file=sys.stderr)
-                groups[group_name]['hosts'].append(inventory_name)
-            try:
-                host_var_key_values = re.split('\s*\n\s*', args.ansible_host_vars_template.render(resource))
-            except jinja_exc.UndefinedError as e:
-                sys.exit("Error rendering host_vars template: %s (template was '%s')" % (e, args.ansible_host_vars_template.source()))
-            args.debug and print("Rendered ansible_host_vars_template as '%s' for %s" % (host_var_key_values, resource_name), file=sys.stderr)
-            for key_value in host_var_key_values:
-                key_value = key_value.strip()
-                if key_value == "":
-                    continue
-                key_value = key_value.split('=', 1)
-                key = key_value[0].strip()
-                if len(key_value) < 2:
-                    print("WARNING: no '=' in assignment '%s' rendered from ansible_host_vars_template [%s]" % (key_value, args.ansible_host_vars_template.source()), file=sys.stderr)
-                    value = ""
-                else:
-                    value = key_value[1].strip()
-                    if value.startswith('['):
-                        value = ast.literal_eval(value)
-                    elif value.startswith('{'):
-                        value = ast.literal_eval(value)
-                host_vars[key] = value
-                args.debug and print("host_var '%s' set to '%s' for %s" % (key, value, resource_name), file=sys.stderr)
-            if inventory_name not in hosts:
-                hosts[inventory_name] = host_vars
-            else:
-                sys.exit("inventory_name was not unique across terraform resources: '%s' was a duplicate" % (inventory_name))
-    tfstate_data['groups'] = groups
-    tfstate_data['hosts'] = hosts
+            resource = Resource(resource_name, resources[item_name])
+            (resource_groups, resource_hosts) = process_item_with_templates(item=resource, item_type="resource", item_name=resource_name, filter_template=args.ansible_resource_filter_template, inventory_name_template=args.ansible_inventory_name_template, groups_template=args.ansible_groups_template, host_vars_template=args.ansible_host_vars_template, debug_p=args.debug)
+
+    # merge groups and hosts from outputs and resources
+    tfstate_data['groups'] = merge_groups(output_groups, resource_groups)
+    tfstate_data['hosts'] = merge_hosts(output_hosts, resource_hosts)
     return tfstate_data
 
+def process_item_with_templates(item, item_type, item_name, filter_template, inventory_name_template, groups_template, host_vars_template, debug_p=False):
+    debug_p and print("Processing %s item named %s" % (item_type, item_name), file=sys.stderr)
+    host_vars = {}
+    groups = {}
+    hosts = {}
+    try:
+        filter_value = filter_template.render(item)
+    except jinja_exc.UndefinedError as e:
+        sys.exit("Error rendering filter template: %s (template was '%s')" % (e, filter_template.source()))
+    if filter_value == "False":
+        continue
+    elif filter_value != "True":
+        raise ValueError("Unexpected value returned from filter_template: %s (template was [%s])" % (filter_value, filter_template.source()))
+    try:
+        inventory_name = inventory_name_template.render(item)
+    except jinja_exc.UndefinedError as e:
+        sys.exit("Error rendering inventory name template: %s (template was '%s')" % (e, inventory_name_template.source()))
+    debug_p and print("Rendered ansible_inventory_name_template as '%s' for %s" % (inventory_name, item_name), file=sys.stderr)
+    try:
+        group_names = re.split('\s*\n\s*', groups_template.render(resource))
+    except jinja_exc.UndefinedError as e:
+        sys.exit("Error rendering groups template: %s (template was '%s')" % (e, groups_template.source()))
+    debug_p and print("Rendered ansible_groups_template as '%s' for %s" % (group_names, item_name), file=sys.stderr)
+    for group_name in group_names:
+        if group_name not in groups:
+            groups[group_name] = {}
+            groups[group_name]['hosts'] = []
+        debug_p and print("'%s' added to group '%s' for %s" % (inventory_name, group_name, item_name), file=sys.stderr)
+        groups[group_name]['hosts'].append(inventory_name)
+    try:
+        host_var_key_values = re.split('\s*\n\s*', host_vars_template.render(resource))
+    except jinja_exc.UndefinedError as e:
+        sys.exit("Error rendering host_vars template: %s (template was '%s')" % (e, host_vars_template.source()))
+    debug_p and print("Rendered ansible_host_vars_template as '%s' for %s" % (host_var_key_values, item_name), file=sys.stderr)
+    for key_value in host_var_key_values:
+        key_value = key_value.strip()
+        if key_value == "":
+            continue
+        key_value = key_value.split('=', 1)
+        key = key_value[0].strip()
+        if len(key_value) < 2:
+            print("WARNING: no '=' in assignment '%s' rendered from ansible_host_vars_template [%s]" % (key_value, host_vars_template.source()), file=sys.stderr)
+            value = ""
+        else:
+            value = key_value[1].strip()
+            if value.startswith('['):
+                value = ast.literal_eval(value)
+            elif value.startswith('{'):
+                value = ast.literal_eval(value)
+        host_vars[key] = value
+        debug_p and print("host_var '%s' set to '%s' for %s" % (key, value, item_name), file=sys.stderr)
+    if inventory_name not in hosts:
+        hosts[inventory_name] = host_vars
+    else:
+        sys.exit("inventory_name was not unique across terraform resources: '%s' was a duplicate" % (inventory_name))
+    return (groups, hosts)
+
+def merge_hosts(*hosts_list):
+    hosts = {}
+    for hosts_to_merge in hosts_list:
+        for inventory_name in hosts_to_merge.keys():
+            if inventory_name not in hosts:
+                hosts[inventory_name] = hosts_to_merge[inventory_name]
+            else:
+                sys.exit("inventory_name was not unique across terraform resources & outputs: '%s' was a duplicate" % (inventory_name))
+    return hosts
+
+def merge_groups(*groups_list):
+    groups = {}
+    for groups_to_merge in groups_list:
+        for group_name in groups_to_merge.keys():
+            group = groups_to_merge[group_name]
+            for group_key in group.keys():
+                if group_key == 'hosts':
+                    hosts_list = group[group_key]
+                    if group_name not in groups:
+                        groups[group_name] = {}
+                        groups[group_name]['hosts'] = []
+                    groups[group_name]['hosts'].extend(hosts_list)
+                else:
+                    sys.exit("don't know how to merge group key: %s" % (group_key))
+    return groups
 
 def list_groups(tf_state_data):
     meta = {"hostvars": tf_state_data['hosts']}
@@ -218,11 +278,15 @@ def main():
     parser.add_argument('--debug', help='Print additional debugging information to stderr', action='store_true', default=False)
     parser.add_argument('--state', help="Location of Terraform .tfstate file (default: environment variable TF_STATE or 'terraform.tfstate' in the current directory)", type=argparse.FileType('r'), default=os.getenv('TF_STATE', 'terraform.tfstate'), dest='terraform_state')
     parser.add_argument('--ansible-inventory-name-template', help="A jinja2 template used to generate the ansible `host` (i.e. the inventory name) from a terraform resource. (default: environment variable TF_ANSIBLE_INVENTORY_NAME_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), default=get_template_default('TF_ANSIBLE_INVENTORY_NAME_TEMPLATE', default=DEFAULT_ANSIBLE_INVENTORY_NAME_TEMPLATE), action=JinjaTemplateAction)
-#    parser.add_argument('--ansible-host-vars-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible host_vars settings (as '<key>=<value>' pairs) from a terraform resource. (default: environment variable TF_ANSIBLE_HOST_VARS_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), default=get_template_default('TF_ANSIBLE_HOST_VARS_TEMPLATE', default=DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), action=JinjaTemplateAction)
     parser.add_argument('--ansible-host-vars-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped\
     ) of ansible host_vars settings (as '<key>=<value>' pairs) from a terraform resource. (default: environment variable TF_ANSIBLE_HOST_VARS_TEMPLATE or if not set, a template that maps all Terraform attributes to ansible host_vars prefixed by 'tf_' as well as setting 'ansible_host' to the IP address)", default=get_template_default('TF_ANSIBLE_HOST_VARS_TEMPLATE', default=DEFAULT_ANSIBLE_HOST_VARS_TEMPLATE), action=JinjaTemplateAction)
     parser.add_argument('--ansible-groups-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible `group` names to which the resource should belong. (default: environment variable TF_ANSIBLE_GROUPS_TEMPLATE or `%s`])" % (DEFAULT_ANSIBLE_GROUPS_TEMPLATE), default=get_template_default('TF_ANSIBLE_GROUPS_TEMPLATE', default=DEFAULT_ANSIBLE_GROUPS_TEMPLATE), action=JinjaTemplateAction)
     parser.add_argument('--ansible-resource-filter-template', help="A jinja2 template used to filter terraform resources. This template is rendered for each resource and should evaluate to either the string 'True' to include the resource or 'False' to exclude it from the output.", default=get_template_default('TF_ANSIBLE_RESOURCE_FILTER_TEMPLATE', default=DEFAULT_ANSIBLE_RESOURCE_FILTER_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-output-inventory-name-template', help="A jinja2 template used to generate the ansible `host` (i.e. the inventory name) from a terraform output. (default: environment variable TF_ANSIBLE_OUTPUT_INVENTORY_NAME_TEMPLATE or `%s`)" % (DEFAULT_ANSIBLE_OUTPUT_INVENTORY_NAME_TEMPLATE), default=get_template_default('TF_ANSIBLE_OUTPUT_INVENTORY_NAME_TEMPLATE', default=DEFAULT_ANSIBLE_OUTPUT_INVENTORY_NAME_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-output-host-vars-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped\
+    ) of ansible-output host_vars settings (as '<key>=<value>' pairs) from a terraform output. (default: environment variable TF_ANSIBLE_OUTPUT_HOST_VARS_TEMPLATE or if not set, a template that maps all Terraform attributes to ansible-output host_vars prefixed by 'tf_' as well as setting 'ansible-output_host' to the IP address)", default=get_template_default('TF_ANSIBLE_OUTPUT_HOST_VARS_TEMPLATE', default=DEFAULT_ANSIBLE_OUTPUT_HOST_VARS_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-output-groups-template', help="A jinja2 template used to generate a newline separated list (with optional whitespace before or after the newline, which will be stripped) of ansible-output `group` names to which the output record should belong. (default: environment variable TF_ANSIBLE_OUTPUT_GROUPS_TEMPLATE or `%s`])" % (DEFAULT_ANSIBLE_OUTPUT_GROUPS_TEMPLATE), default=get_template_default('TF_ANSIBLE_OUTPUT_GROUPS_TEMPLATE', default=DEFAULT_ANSIBLE_OUTPUT_GROUPS_TEMPLATE), action=JinjaTemplateAction)
+    parser.add_argument('--ansible-output-filter-template', help="A jinja2 template used to filter terraform outputs. This template is rendered for each output and should evaluate to either the string 'True' to include the  or 'False' to exclude it from the output.", default=get_template_default('TF_ANSIBLE_OUTPUT_FILTER_TEMPLATE', default=DEFAULT_ANSIBLE_OUTPUT_FILTER_TEMPLATE), action=JinjaTemplateAction)
     args = parser.parse_args()
 
     args.debug and print("Parsing JSON from %s" % (args.terraform_state), file=sys.stderr)
